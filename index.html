@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>jquery ajax php mysql chatting software</title>
+<style>
+  body { font-family: Arial; max-width: 420px; margin: 30px auto; }
+  #box { height: 350px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; background: #f7f7f7; }
+  .m { margin: 6px 0; padding: 6px 10px; border-radius: 8px; max-width: 75%; clear: both; }
+  .m b, .m small { display: block; font-size: 11px; color: #555; }
+  .me   { background: #d1f0c2; float: right; }
+  .them { background: #fff; float: left; border: 1px solid #ddd; }
+  #more { display: block; margin: 0 auto 8px; }
+  #msg  { width: 80%; padding: 6px; }
+</style>
+</head>
+<body>
+<h3>jquery ajax php mysql chatting software</h3>
+
+<div id="login">
+  <input id="me" placeholder="Your username"><br><br>
+  <input id="other" placeholder="Chat with (username)"><br><br>
+  <button id="start">Start chat</button>
+</div>
+
+<div id="chat" style="display:none">
+  <div id="box"><button id="more">Load more</button></div>
+  <input id="msg" placeholder="Type and press Enter">
+  <button id="send">Send</button>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script>
+const API = 'api.php';
+let me, other, lastId = 0, firstId = 0, force = false;
+
+// Build one message bubble. .text() prevents HTML/XSS injection.
+function bubble(m) {
+  return $('<div class="m">')
+    .addClass(m.sender === me ? 'me' : 'them')
+    .append($('<b>').text(m.sender))
+    .append($('<span>').text(m.message))
+    .append($('<small>').text(m.created_at));
+}
+
+function scrollDown() { const b = $('#box'); b.scrollTop(b[0].scrollHeight); }
+
+// ---- History: latest 10 first, then older ones on "Load more" ----
+function loadOld(done) {
+  const initial = (firstId === 0 && lastId === 0);
+  $.getJSON(API, { action: 'old', me, other, before: firstId }, function (res) {
+    // res is already a JS array: jQuery ran JSON.parse() because of getJSON
+    if (res.length < 10) $('#more').hide();
+    if (res.length) {
+      const box = $('#box'), oldHeight = box[0].scrollHeight;
+      for (let i = res.length - 1; i >= 0; i--) $('#more').after(bubble(res[i])); // prepend in order
+      firstId = res[0].id;
+      if (lastId === 0) lastId = res[res.length - 1].id;
+      if (initial) scrollDown();
+      else box.scrollTop(box[0].scrollHeight - oldHeight);   // keep reading position
+    }
+    if (done) done();
+  });
+}
+
+// ---- Polling: ask server for anything newer than lastId ----
+function poll() {
+  $.getJSON(API, { action: 'new', me, other, after: lastId }, function (res) {
+    if (!res.length) return;
+    const box = $('#box');
+    const nearBottom = box[0].scrollHeight - box.scrollTop() - box.innerHeight() < 60;
+    res.forEach(m => { box.append(bubble(m)); lastId = m.id; if (!firstId) firstId = m.id; });
+    if (nearBottom || force) { scrollDown(); force = false; }  // auto-scroll only if user is at bottom
+  });
+}
+
+// ---- Send ----
+function send() {
+  const text = $('#msg').val().trim();
+  if (!text) return;
+  $.post(API, { action: 'send', me, other, message: text }, function (r) {
+    if (r.ok) { $('#msg').val(''); force = true; poll(); }
+  }, 'json');   // 'json' = decode the server's json_encode() output
+}
+
+// ---- Events ----
+$('#start').click(function () {
+  me = $('#me').val().trim(); other = $('#other').val().trim();
+  if (!me || !other) return alert('Enter both usernames');
+  $('#login').hide(); $('#chat').show(); $('#msg').focus();
+  loadOld(function () { setInterval(poll, 2000); });   // start polling after history loads
+});
+$('#more').click(() => loadOld());
+$('#send').click(send);
+$('#msg').on('keydown', function (e) {        // key event: Enter sends
+  if (e.key === 'Enter') { e.preventDefault(); send(); }
+});
+</script>
+</body>
+</html>
